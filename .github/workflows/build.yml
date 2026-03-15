@@ -21,10 +21,12 @@ jobs:
     steps:
       # ---- 拉取私有代码 ----
       - name: Clone private repo
+        env:
+          GITLAB_PAT: ${{ secrets.GITLAB_PAT }}
         run: |
-          git -c http.extraHeader="PRIVATE-TOKEN: ${{ secrets.GITLAB_PAT }}" \
-            clone --depth 1 --branch "$TAG" \
-            "https://gitlab.com/project-basic-service/opcwork.git" \
+          git config --global credential.helper ''
+          git clone --depth 1 --branch "$TAG" \
+            "https://private-token:${GITLAB_PAT}@gitlab.com/project-basic-service/opcwork.git" \
             workspace
 
       # ---- 设置 Node.js ----
