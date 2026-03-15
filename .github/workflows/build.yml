@@ -90,6 +90,7 @@ jobs:
 
       # ---- 创建 GitLab Release ----
       - name: Create GitLab Release
+        continue-on-error: true
         working-directory: workspace
         run: |
           DMG_FILE=$(basename $(ls release/*.dmg | head -n 1) 2>/dev/null || echo "Solon-${VERSION}.dmg")
@@ -116,6 +117,7 @@ jobs:
 
       # ---- 飞书通知 ----
       - name: Feishu notification
+        continue-on-error: true
         working-directory: workspace
         run: |
           DMG_FILE=$(basename $(ls release/*.dmg | head -n 1) 2>/dev/null || echo "Solon-${VERSION}.dmg")
