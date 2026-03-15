@@ -16,15 +16,16 @@ env:
 jobs:
   build-and-deploy:
     runs-on: macos-latest
+    environment: GITLAB_PAT
     timeout-minutes: 60
     steps:
       # ---- 拉取私有代码 ----
       - name: Clone private repo
         run: |
-          git clone --depth 1 --branch "$TAG" \
-            "https://oauth2:${{ secrets.GITLAB_PAT }}@gitlab.com/project-basic-service/opcwork.git" \
+          git -c http.extraHeader="PRIVATE-TOKEN: ${{ secrets.GITLAB_PAT }}" \
+            clone --depth 1 --branch "$TAG" \
+            "https://gitlab.com/project-basic-service/opcwork.git" \
             workspace
-        # 静默模式：避免 token 泄露到日志（GitHub 会自动 mask secrets）
 
       # ---- 设置 Node.js ----
       - name: Setup Node.js
