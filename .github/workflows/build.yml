@@ -18,6 +18,8 @@ jobs:
   build-and-deploy:
     runs-on: macos-latest
     environment: GITLAB_PAT
+    permissions:
+      contents: write
     timeout-minutes: 60
     steps:
       # ---- 拉取私有代码 ----
