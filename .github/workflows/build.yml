@@ -1,6 +1,7 @@
-# Solon Electron 应用 — GitHub Actions 构建 + R2 上传
+# Solon Electron 应用 — GitHub Actions 构建 + 发布
 # 本仓库为空壳仓库，代码来自 GitLab 私有仓库
 # 触发方式：GitLab CI 通过 Repository Dispatch API 触发
+# 产物发布到本仓库的 GitHub Releases
 
 name: Build & Deploy
 
@@ -71,38 +72,28 @@ jobs:
           echo "=== Changelog ==="
           cat changelog.txt
 
-      # ---- 上传到 Cloudflare R2 ----
-      - name: Upload to R2
-        working-directory: workspace
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          AWS_REGION: auto
-        run: |
-          R2_ENDPOINT="https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
-          BUCKET="solon"
-          
-          echo "开始上传到 R2 (通道: $CHANNEL)..."
-          for file in release/*.dmg release/*.zip release/*.blockmap release/latest-mac.yml; do
-            if [ -f "$file" ]; then
-              FILENAME=$(basename "$file")
-              echo "📦 上传: $FILENAME → $CHANNEL/$FILENAME"
-              aws s3 cp "$file" "s3://${BUCKET}/${CHANNEL}/${FILENAME}" \
-                --endpoint-url "$R2_ENDPOINT" \
-                --no-progress
-              echo "✅ $FILENAME 上传完成"
-            fi
-          done
-          echo "🚀 所有文件已上传至 R2！"
+      # ---- 创建 GitHub Release 并上传产物 ----
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG }}
+          name: "Solon v${{ env.VERSION }}"
+          body_path: workspace/changelog.txt
+          prerelease: ${{ env.CHANNEL == 'beta' }}
+          files: |
+            workspace/release/*.dmg
+            workspace/release/*.zip
+            workspace/release/*.blockmap
+            workspace/release/latest-mac.yml
 
       # ---- 创建 GitLab Release ----
       - name: Create GitLab Release
         working-directory: workspace
         run: |
-          PUBLISH_URL="https://solon.overdev.cn/${CHANNEL}"
           DMG_FILE=$(basename $(ls release/*.dmg | head -n 1) 2>/dev/null || echo "Solon-${VERSION}.dmg")
           ZIP_FILE=$(basename $(ls release/*.zip | head -n 1) 2>/dev/null || echo "Solon-${VERSION}-mac.zip")
           DESCRIPTION=$(cat changelog.txt)
+          GH_RELEASE_URL="https://github.com/overdev-l/solon-ci/releases/download/${TAG}"
 
           curl --fail --request POST \
             --header "PRIVATE-TOKEN: ${{ secrets.GITLAB_RELEASE_TOKEN }}" \
@@ -113,8 +104,8 @@ jobs:
               \"description\": $(echo "$DESCRIPTION" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))'),
               \"assets\": {
                 \"links\": [
-                  {\"name\": \"macOS DMG\", \"url\": \"${PUBLISH_URL}/${DMG_FILE}\"},
-                  {\"name\": \"macOS ZIP\", \"url\": \"${PUBLISH_URL}/${ZIP_FILE}\"}
+                  {\"name\": \"macOS DMG\", \"url\": \"${GH_RELEASE_URL}/${DMG_FILE}\"},
+                  {\"name\": \"macOS ZIP\", \"url\": \"${GH_RELEASE_URL}/${ZIP_FILE}\"}
                 ]
               }
             }" \
@@ -125,8 +116,8 @@ jobs:
       - name: Feishu notification
         working-directory: workspace
         run: |
-          PUBLISH_URL="https://solon.overdev.cn/${CHANNEL}"
           DMG_FILE=$(basename $(ls release/*.dmg | head -n 1) 2>/dev/null || echo "Solon-${VERSION}.dmg")
+          GH_RELEASE_URL="https://github.com/overdev-l/solon-ci/releases/download/${TAG}"
           FEISHU_CONTENT=$(cat changelog.txt | sed 's/$/\\n/' | tr -d '\n')
 
           curl -s -X POST \
@@ -151,7 +142,7 @@ jobs:
                         \"tag\": \"button\",
                         \"text\": {\"tag\": \"plain_text\", \"content\": \"下载 DMG\"},
                         \"type\": \"primary\",
-                        \"url\": \"${PUBLISH_URL}/${DMG_FILE}\"
+                        \"url\": \"${GH_RELEASE_URL}/${DMG_FILE}\"
                       }
                     ]
                   }
