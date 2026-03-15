@@ -1,0 +1,158 @@
+# Solon Electron 应用 — GitHub Actions 构建 + R2 上传
+# 本仓库为空壳仓库，代码来自 GitLab 私有仓库
+# 触发方式：GitLab CI 通过 Repository Dispatch API 触发
+
+name: Build & Deploy
+
+on:
+  repository_dispatch:
+    types: [trigger-build]
+
+env:
+  TAG: ${{ github.event.client_payload.tag }}
+  CHANNEL: ${{ github.event.client_payload.channel }}
+  VERSION: ${{ github.event.client_payload.version }}
+
+jobs:
+  build-and-deploy:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      # ---- 拉取私有代码 ----
+      - name: Clone private repo
+        run: |
+          git clone --depth 1 --branch "$TAG" \
+            "https://oauth2:${{ secrets.GITLAB_PAT }}@gitlab.com/project-basic-service/opcwork.git" \
+            workspace
+        # 静默模式：避免 token 泄露到日志（GitHub 会自动 mask secrets）
+
+      # ---- 设置 Node.js ----
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # ---- 安装依赖 ----
+      - name: Install dependencies
+        working-directory: workspace
+        run: NODE_ENV=development npm ci 2>&1 | tail -5
+
+      # ---- 构建 ----
+      - name: Build renderer
+        working-directory: workspace
+        run: |
+          echo "::group::TypeScript & Vite 构建"
+          ./node_modules/.bin/tsc && ./node_modules/.bin/vite build
+          echo "::endgroup::"
+
+      - name: Build Electron (macOS)
+        working-directory: workspace
+        run: |
+          echo "::group::electron-builder"
+          npx electron-builder --mac --publish never 2>&1 | tail -20
+          echo "::endgroup::"
+          echo "构建产物："
+          ls -lh release/*.dmg release/*.zip release/*.blockmap release/latest-mac.yml 2>/dev/null || true
+
+      # ---- 生成 Changelog ----
+      - name: Generate changelog
+        working-directory: workspace
+        run: |
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -z "$PREVIOUS_TAG" ]; then
+            CHANGELOG=$(git log --pretty=format:"- %s" "$TAG")
+          else
+            CHANGELOG=$(git log --pretty=format:"- %s" "${PREVIOUS_TAG}..${TAG}")
+          fi
+          echo "$CHANGELOG" > changelog.txt
+          echo "=== Changelog ==="
+          cat changelog.txt
+
+      # ---- 上传到 Cloudflare R2 ----
+      - name: Upload to R2
+        working-directory: workspace
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_REGION: auto
+        run: |
+          R2_ENDPOINT="https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          BUCKET="solon"
+          
+          echo "开始上传到 R2 (通道: $CHANNEL)..."
+          for file in release/*.dmg release/*.zip release/*.blockmap release/latest-mac.yml; do
+            if [ -f "$file" ]; then
+              FILENAME=$(basename "$file")
+              echo "📦 上传: $FILENAME → $CHANNEL/$FILENAME"
+              aws s3 cp "$file" "s3://${BUCKET}/${CHANNEL}/${FILENAME}" \
+                --endpoint-url "$R2_ENDPOINT" \
+                --no-progress
+              echo "✅ $FILENAME 上传完成"
+            fi
+          done
+          echo "🚀 所有文件已上传至 R2！"
+
+      # ---- 创建 GitLab Release ----
+      - name: Create GitLab Release
+        working-directory: workspace
+        run: |
+          PUBLISH_URL="https://solon.overdev.cn/${CHANNEL}"
+          DMG_FILE=$(basename $(ls release/*.dmg | head -n 1) 2>/dev/null || echo "Solon-${VERSION}.dmg")
+          ZIP_FILE=$(basename $(ls release/*.zip | head -n 1) 2>/dev/null || echo "Solon-${VERSION}-mac.zip")
+          DESCRIPTION=$(cat changelog.txt)
+
+          curl --fail --request POST \
+            --header "PRIVATE-TOKEN: ${{ secrets.GITLAB_RELEASE_TOKEN }}" \
+            --header "Content-Type: application/json" \
+            --data "{
+              \"name\": \"Solon v${VERSION}\",
+              \"tag_name\": \"${TAG}\",
+              \"description\": $(echo "$DESCRIPTION" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))'),
+              \"assets\": {
+                \"links\": [
+                  {\"name\": \"macOS DMG\", \"url\": \"${PUBLISH_URL}/${DMG_FILE}\"},
+                  {\"name\": \"macOS ZIP\", \"url\": \"${PUBLISH_URL}/${ZIP_FILE}\"}
+                ]
+              }
+            }" \
+            "https://gitlab.com/api/v4/projects/79942617/releases"
+          echo "✅ GitLab Release 创建成功"
+
+      # ---- 飞书通知 ----
+      - name: Feishu notification
+        working-directory: workspace
+        run: |
+          PUBLISH_URL="https://solon.overdev.cn/${CHANNEL}"
+          DMG_FILE=$(basename $(ls release/*.dmg | head -n 1) 2>/dev/null || echo "Solon-${VERSION}.dmg")
+          FEISHU_CONTENT=$(cat changelog.txt | sed 's/$/\\n/' | tr -d '\n')
+
+          curl -s -X POST \
+            "https://open.feishu.cn/open-apis/bot/v2/hook/a6fca9cf-e289-4b91-8bb1-663974ed1d1c" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"msg_type\": \"interactive\",
+              \"card\": {
+                \"header\": {
+                  \"title\": {\"tag\": \"plain_text\", \"content\": \"🚀 Solon ${VERSION} 已发布\"},
+                  \"template\": \"blue\"
+                },
+                \"elements\": [
+                  {
+                    \"tag\": \"markdown\",
+                    \"content\": \"**版本号：** ${VERSION}\\n**通道：** ${CHANNEL}\\n\\n---\\n\\n**更新内容：**\\n${FEISHU_CONTENT}\"
+                  },
+                  {
+                    \"tag\": \"action\",
+                    \"actions\": [
+                      {
+                        \"tag\": \"button\",
+                        \"text\": {\"tag\": \"plain_text\", \"content\": \"下载 DMG\"},
+                        \"type\": \"primary\",
+                        \"url\": \"${PUBLISH_URL}/${DMG_FILE}\"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }"
+          echo "✅ 飞书通知已发送"
