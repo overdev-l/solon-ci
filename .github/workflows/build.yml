@@ -104,12 +104,70 @@ jobs:
           tag_name: ${{ env.TAG }}
           name: "Solon v${{ env.VERSION }}"
           body_path: workspace/changelog.txt
-          prerelease: false
+          prerelease: ${{ env.CHANNEL == 'beta' }}
           files: |
             workspace/release/*.dmg
             workspace/release/*.zip
             workspace/release/*.blockmap
             workspace/release/latest-mac.yml
+
+
+      # ---- 更新通道固定 Release（供 electron-updater 检查） ----
+      - name: Update channel release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          CHANNEL_TAG="update-${CHANNEL}"
+          echo "通道 tag: ${CHANNEL_TAG}"
+
+          # 检查固定 release 是否存在
+          RELEASE_ID=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
+            "https://api.github.com/repos/overdev-l/solon-ci/releases/tags/${CHANNEL_TAG}" \
+            | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('id',''))" 2>/dev/null)
+
+          if [ -z "$RELEASE_ID" ]; then
+            echo "创建固定 release: ${CHANNEL_TAG}"
+            RELEASE_ID=$(curl -s -X POST -H "Authorization: token ${GITHUB_TOKEN}" \
+              -H "Content-Type: application/json" \
+              -d "{\"tag_name\":\"${CHANNEL_TAG}\",\"name\":\"${CHANNEL} channel (auto-update)\",\"body\":\"此 release 由 CI 自动维护，供 electron-updater 检查更新。\\n\\n当前版本: v${VERSION}\",\"prerelease\":false}" \
+              "https://api.github.com/repos/overdev-l/solon-ci/releases" \
+              | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+          else
+            echo "更新固定 release 描述"
+            curl -s -X PATCH -H "Authorization: token ${GITHUB_TOKEN}" \
+              -H "Content-Type: application/json" \
+              -d "{\"body\":\"此 release 由 CI 自动维护，供 electron-updater 检查更新。\\n\\n当前版本: v${VERSION}\"}" \
+              "https://api.github.com/repos/overdev-l/solon-ci/releases/${RELEASE_ID}" > /dev/null
+          fi
+
+          # 删除旧的 assets
+          ASSETS=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
+            "https://api.github.com/repos/overdev-l/solon-ci/releases/${RELEASE_ID}/assets")
+          echo "$ASSETS" | python3 -c "
+import sys, json, urllib.request
+assets = json.load(sys.stdin)
+for a in assets:
+    req = urllib.request.Request(a['url'], method='DELETE', headers={
+        'Authorization': 'token ${GITHUB_TOKEN}',
+    })
+    urllib.request.urlopen(req)
+    print(f'  删除旧 asset: {a["name"]}')
+"
+
+          # 上传新的 assets
+          cd workspace/release
+          for FILE in latest-mac.yml *.dmg *.zip *.blockmap; do
+            [ -f "$FILE" ] || continue
+            MIME="application/octet-stream"
+            [[ "$FILE" == *.yml ]] && MIME="text/yaml"
+            echo "  上传: ${FILE}"
+            curl -s -X POST \
+              -H "Authorization: token ${GITHUB_TOKEN}" \
+              -H "Content-Type: ${MIME}" \
+              --data-binary "@${FILE}" \
+              "https://uploads.github.com/repos/overdev-l/solon-ci/releases/${RELEASE_ID}/assets?name=${FILE}" > /dev/null
+          done
+          echo "✅ 通道 ${CHANNEL_TAG} 已更新到 v${VERSION}"
 
       # ---- 创建 GitLab Release ----
       - name: Create GitLab Release
