@@ -125,7 +125,7 @@ jobs:
           FEISHU_CONTENT=$(cat changelog.txt | sed 's/$/\\n/' | tr -d '\n')
 
           curl -s -X POST \
-            "https://open.feishu.cn/open-apis/bot/v2/hook/a6fca9cf-e289-4b91-8bb1-663974ed1d1c" \
+            "https://open.feishu.cn/open-apis/bot/v2/hook/d55b0ff3-12ed-416f-9523-28d8055cca46" \
             -H "Content-Type: application/json" \
             -d "{
               \"msg_type\": \"interactive\",
