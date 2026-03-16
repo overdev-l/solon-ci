@@ -117,7 +117,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          CHANNEL_TAG="update-${CHANNEL}"
+          CHANNEL_TAG="update"
           DOWNLOAD_BASE="https://github.com/overdev-l/solon-ci/releases/download/${TAG}"
           echo "通道: ${CHANNEL_TAG} | 版本: ${TAG}"
 
