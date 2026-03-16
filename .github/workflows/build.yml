@@ -104,7 +104,7 @@ jobs:
           tag_name: ${{ env.TAG }}
           name: "Solon v${{ env.VERSION }}"
           body_path: workspace/changelog.txt
-          prerelease: ${{ env.CHANNEL == 'beta' }}
+          prerelease: false
           files: |
             workspace/release/*.dmg
             workspace/release/*.zip
