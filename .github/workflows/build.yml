@@ -28,9 +28,11 @@ jobs:
           GITLAB_PAT: ${{ secrets.GITLAB_PAT }}
         run: |
           git config --global credential.helper ''
-          git clone --depth 1 --branch "$TAG" \
+          git clone --branch "$TAG" \
             "https://private-token:${GITLAB_PAT}@gitlab.com/project-basic-service/opcwork.git" \
             workspace
+          cd workspace
+          git fetch --tags
 
       # ---- 设置 Node.js ----
       - name: Setup Node.js
@@ -41,9 +43,23 @@ jobs:
       # ---- 安装依赖 ----
       - name: Install dependencies
         working-directory: workspace
-        run: NODE_ENV=development npm ci 2>&1 | tail -5
+        run: |
+          NODE_ENV=development npm ci 2>&1 | tail -5
+          # 安装插件依赖
+          cd figma-plugin && npm ci 2>&1 | tail -3 && cd ..
+          cd photoshop-plugin && npm ci 2>&1 | tail -3 && cd ..
 
       # ---- 构建 ----
+      - name: Build plugins
+        working-directory: workspace
+        run: |
+          echo "::group::构建 Figma 插件"
+          cd figma-plugin && npm run build && cd ..
+          echo "::endgroup::"
+          echo "::group::构建 Photoshop 插件"
+          cd photoshop-plugin && npm run build && cd ..
+          echo "::endgroup::"
+
       - name: Build renderer
         working-directory: workspace
         run: |
@@ -64,12 +80,19 @@ jobs:
       - name: Generate changelog
         working-directory: workspace
         run: |
-          PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          # 获取上一个 tag（排除当前 tag）
+          PREVIOUS_TAG=$(git tag --sort=-creatordate | grep -v "^${TAG}$" | head -n 1)
+          echo "当前 tag: ${TAG}"
+          echo "上一个 tag: ${PREVIOUS_TAG:-'(无)'}"
+
           if [ -z "$PREVIOUS_TAG" ]; then
-            CHANGELOG=$(git log --pretty=format:"- %s" "$TAG")
+            # 无上一个 tag，取所有 feat/fix commit
+            CHANGELOG=$(git log --pretty=format:"- %s" "$TAG" | grep -E "^- (feat|fix)" || git log --pretty=format:"- %s" -20)
           else
-            CHANGELOG=$(git log --pretty=format:"- %s" "${PREVIOUS_TAG}..${TAG}")
+            CHANGELOG=$(git log --pretty=format:"- %s" "${PREVIOUS_TAG}..${TAG}" | grep -E "^- (feat|fix)" || git log --pretty=format:"- %s" "${PREVIOUS_TAG}..${TAG}")
           fi
+
+          # 去除 chore 类型的 commit（如版本号升级）
           echo "$CHANGELOG" > changelog.txt
           echo "=== Changelog ==="
           cat changelog.txt
