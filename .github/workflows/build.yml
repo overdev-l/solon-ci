@@ -70,9 +70,10 @@ jobs:
           npm run build:electron
           test -f dist-electron/main.mjs
           echo "::endgroup::"
-          echo "::group::裁剪 devDependencies（防止 electron-builder 扫描时 OOM）"
+          echo "::group::裁剪 devDependencies + 删除 plugin node_modules（防 electron-builder 扫描 OOM）"
           npm prune --omit=dev 2>&1 | tail -5
-          du -sh node_modules || true
+          rm -rf figma-plugin/node_modules photoshop-plugin/node_modules
+          du -sh node_modules figma-plugin photoshop-plugin || true
           echo "::endgroup::"
           echo "::group::electron-builder"
           npx electron-builder --mac --publish never -c.electronVersion=41.0.0
