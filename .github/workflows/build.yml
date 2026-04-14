@@ -43,7 +43,7 @@ jobs:
         working-directory: workspace
         run: |
           rm -f package-lock.json
-          NODE_ENV=development pnpm install --no-frozen-lockfile 2>&1 | tail -5
+          NODE_ENV=development pnpm install --no-frozen-lockfile --shamefully-hoist 2>&1 | tail -5
           cd figma-plugin && npm ci 2>&1 | tail -3 && cd ..
           cd photoshop-plugin && npm ci 2>&1 | tail -3 && cd ..
 
