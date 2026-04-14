@@ -1,6 +1,5 @@
 # Solon Electron 应用 — GitHub Actions 构建 + 发布
-# 本仓库为空壳仓库，代码来自 GitLab 私有仓库
-# 触发方式：GitLab CI 通过 Repository Dispatch API 触发
+# 触发方式：overdev-team/solon 通过 Repository Dispatch API 触发
 # 产物发布到本仓库的 GitHub Releases
 
 name: Build & Deploy
@@ -17,19 +16,18 @@ env:
 jobs:
   build-and-deploy:
     runs-on: macos-latest
-    environment: GITLAB_PAT
     permissions:
       contents: write
     timeout-minutes: 60
     steps:
-      # ---- 拉取私有代码 ----
-      - name: Clone private repo
+      # ---- 拉取源码（GitHub 私仓）----
+      - name: Clone source repo
         env:
-          GITLAB_PAT: ${{ secrets.GITLAB_PAT }}
+          SOLON_REPO_PAT: ${{ secrets.SOLON_REPO_PAT }}
         run: |
           git config --global credential.helper ''
           git clone --branch "$TAG" \
-            "https://private-token:${GITLAB_PAT}@gitlab.com/project-basic-service/opcwork.git" \
+            "https://x-access-token:${SOLON_REPO_PAT}@github.com/overdev-team/solon.git" \
             workspace
           cd workspace
           git fetch --tags
@@ -45,7 +43,6 @@ jobs:
         working-directory: workspace
         run: |
           NODE_ENV=development npm ci 2>&1 | tail -5
-          # 安装插件依赖
           cd figma-plugin && npm ci 2>&1 | tail -3 && cd ..
           cd photoshop-plugin && npm ci 2>&1 | tail -3 && cd ..
 
@@ -85,19 +82,14 @@ jobs:
       - name: Generate changelog
         working-directory: workspace
         run: |
-          # 获取上一个 tag（排除当前 tag）
           PREVIOUS_TAG=$(git tag --sort=-creatordate | grep -v "^${TAG}$" | head -n 1)
           echo "当前 tag: ${TAG}"
           echo "上一个 tag: ${PREVIOUS_TAG:-'(无)'}"
-
           if [ -z "$PREVIOUS_TAG" ]; then
-            # 无上一个 tag，取所有 feat/fix commit
             CHANGELOG=$(git log --pretty=format:"- %s" "$TAG" | grep -E "^- (feat|fix)" || git log --pretty=format:"- %s" -20)
           else
             CHANGELOG=$(git log --pretty=format:"- %s" "${PREVIOUS_TAG}..${TAG}" | grep -E "^- (feat|fix)" || git log --pretty=format:"- %s" "${PREVIOUS_TAG}..${TAG}")
           fi
-
-          # 去除 chore 类型的 commit（如版本号升级）
           echo "$CHANGELOG" > changelog.txt
           echo "=== Changelog ==="
           cat changelog.txt
@@ -116,7 +108,6 @@ jobs:
             workspace/release/*.zip
             workspace/release/*.blockmap
             workspace/release/latest-mac.yml
-
 
       # ---- 更新通道固定 Release（供 electron-updater 检查） ----
       - name: Update channel release
@@ -151,33 +142,6 @@ jobs:
           curl -s -X POST -H "Authorization: token ${GITHUB_TOKEN}" -H "Content-Type: application/octet-stream" --data-binary "@workspace/release/latest-mac.yml" "https://uploads.github.com/repos/overdev-l/solon-ci/releases/${RELEASE_ID}/assets?name=latest-mac.yml" > /dev/null
           echo "✅ 通道 ${CHANNEL_TAG} 已更新到 v${VERSION}"
         continue-on-error: true
-
-      # ---- 创建 GitLab Release ----
-      - name: Create GitLab Release
-        continue-on-error: true
-        working-directory: workspace
-        run: |
-          DMG_FILE=$(basename $(ls release/*.dmg | head -n 1) 2>/dev/null || echo "Solon-${VERSION}.dmg")
-          ZIP_FILE=$(basename $(ls release/*.zip | head -n 1) 2>/dev/null || echo "Solon-${VERSION}-mac.zip")
-          DESCRIPTION=$(cat changelog.txt)
-          GH_RELEASE_URL="https://github.com/overdev-l/solon-ci/releases/download/${TAG}"
-
-          curl --fail --request POST \
-            --header "PRIVATE-TOKEN: ${{ secrets.GITLAB_RELEASE_TOKEN }}" \
-            --header "Content-Type: application/json" \
-            --data "{
-              \"name\": \"Solon v${VERSION}\",
-              \"tag_name\": \"${TAG}\",
-              \"description\": $(echo "$DESCRIPTION" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))'),
-              \"assets\": {
-                \"links\": [
-                  {\"name\": \"macOS DMG\", \"url\": \"${GH_RELEASE_URL}/${DMG_FILE}\"},
-                  {\"name\": \"macOS ZIP\", \"url\": \"${GH_RELEASE_URL}/${ZIP_FILE}\"}
-                ]
-              }
-            }" \
-            "https://gitlab.com/api/v4/projects/79942617/releases"
-          echo "✅ GitLab Release 创建成功"
 
       # ---- 飞书通知 ----
       - name: Feishu notification
