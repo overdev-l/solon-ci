@@ -15,7 +15,7 @@ env:
 
 jobs:
   build-and-deploy:
-    runs-on: macos-latest
+    runs-on: macos-14-xlarge
     permissions:
       contents: write
     timeout-minutes: 60
@@ -63,7 +63,7 @@ jobs:
       - name: Build Electron (macOS)
         working-directory: workspace
         env:
-          NODE_OPTIONS: --max-old-space-size=8192
+          NODE_OPTIONS: --max-old-space-size=12288
         run: |
           set -eo pipefail
           echo "::group::构建 Electron 主进程"
