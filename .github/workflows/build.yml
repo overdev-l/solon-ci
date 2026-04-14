@@ -70,6 +70,10 @@ jobs:
           npm run build:electron
           test -f dist-electron/main.mjs
           echo "::endgroup::"
+          echo "::group::裁剪 devDependencies（防止 electron-builder 扫描时 OOM）"
+          npm prune --omit=dev 2>&1 | tail -5
+          du -sh node_modules || true
+          echo "::endgroup::"
           echo "::group::electron-builder"
           npx electron-builder --mac --publish never
           echo "::endgroup::"
