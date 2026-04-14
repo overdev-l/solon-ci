@@ -153,31 +153,33 @@ jobs:
           FEISHU_WEBHOOK: https://open.feishu.cn/open-apis/bot/v2/hook/d55b0ff3-12ed-416f-9523-28d8055cca46
         run: |
           DMG_FILE=$(basename "$(ls release/*.dmg | head -n 1)" 2>/dev/null || echo "Solon-${VERSION}.dmg")
-          GH_RELEASE_URL="https://github.com/overdev-l/solon-ci/releases/download/${TAG}"
-          export DMG_URL="${GH_RELEASE_URL}/${DMG_FILE}"
-          PAYLOAD=$(python3 -c "
-import json, os
-changelog = open('changelog.txt').read().strip()
-v = os.environ['VERSION']
-ch = os.environ['CHANNEL']
-content = f'**版本号：** {v}\n**通道：** {ch}\n\n---\n\n**更新内容：**\n{changelog}'
-payload = {
-    'msg_type': 'interactive',
-    'card': {
-        'header': {'title': {'tag': 'plain_text', 'content': f'🚀 Solon {v} 已发布'}, 'template': 'blue'},
-        'elements': [
-            {'tag': 'markdown', 'content': content},
-            {'tag': 'action', 'actions': [
-                {'tag': 'button',
-                 'text': {'tag': 'plain_text', 'content': '下载 DMG'},
-                 'type': 'primary',
-                 'url': os.environ['DMG_URL']}
-            ]}
-        ]
-    }
-}
-print(json.dumps(payload, ensure_ascii=False))
-")
+          export DMG_URL="https://github.com/overdev-l/solon-ci/releases/download/${TAG}/${DMG_FILE}"
+          cat > /tmp/feishu.py <<'PYEOF'
+          import json, os
+          changelog = open('changelog.txt').read().strip()
+          v = os.environ['VERSION']
+          ch = os.environ['CHANNEL']
+          content = '**版本号：** ' + v + '\n**通道：** ' + ch + '\n\n---\n\n**更新内容：**\n' + changelog
+          payload = {
+              'msg_type': 'interactive',
+              'card': {
+                  'header': {'title': {'tag': 'plain_text', 'content': '🚀 Solon ' + v + ' 已发布'}, 'template': 'blue'},
+                  'elements': [
+                      {'tag': 'markdown', 'content': content},
+                      {'tag': 'action', 'actions': [
+                          {'tag': 'button',
+                           'text': {'tag': 'plain_text', 'content': '下载 DMG'},
+                           'type': 'primary',
+                           'url': os.environ['DMG_URL']}
+                      ]}
+                  ]
+              }
+          }
+          print(json.dumps(payload, ensure_ascii=False))
+          PYEOF
+          # heredoc 保留了缩进——去掉
+          sed -i '' 's/^          //' /tmp/feishu.py 2>/dev/null || sed -i 's/^          //' /tmp/feishu.py
+          PAYLOAD=$(python3 /tmp/feishu.py)
           RESP=$(curl -s -X POST "$FEISHU_WEBHOOK" -H "Content-Type: application/json" -d "$PAYLOAD")
           echo "飞书响应: $RESP"
           echo "$RESP" | python3 -c "import sys,json; sys.exit(0 if json.load(sys.stdin).get('code',0)==0 else 1)" \
