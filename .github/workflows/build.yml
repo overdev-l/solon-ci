@@ -20,7 +20,6 @@ jobs:
       contents: write
     timeout-minutes: 60
     steps:
-      # ---- 拉取源码（GitHub 私仓）----
       - name: Clone source repo
         env:
           SOLON_REPO_PAT: ${{ secrets.SOLON_REPO_PAT }}
@@ -32,13 +31,11 @@ jobs:
           cd workspace
           git fetch --tags
 
-      # ---- 设置 Node.js ----
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      # ---- 安装依赖 ----
       - name: Install dependencies
         working-directory: workspace
         run: |
@@ -46,7 +43,6 @@ jobs:
           cd figma-plugin && npm ci 2>&1 | tail -3 && cd ..
           cd photoshop-plugin && npm ci 2>&1 | tail -3 && cd ..
 
-      # ---- 构建 ----
       - name: Build plugins
         working-directory: workspace
         run: |
@@ -73,12 +69,11 @@ jobs:
           test -f dist-electron/main.mjs
           echo "::endgroup::"
           echo "::group::electron-builder"
-          npx electron-builder --mac --publish never 2>&1 | tail -20
+          npx electron-builder --mac --publish never
           echo "::endgroup::"
           echo "构建产物："
           ls -lh release/*.dmg release/*.zip release/*.blockmap release/latest-mac.yml
 
-      # ---- 生成 Changelog ----
       - name: Generate changelog
         working-directory: workspace
         run: |
@@ -94,7 +89,6 @@ jobs:
           echo "=== Changelog ==="
           cat changelog.txt
 
-      # ---- 创建 GitHub Release 并上传产物 ----
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -109,7 +103,6 @@ jobs:
             workspace/release/*.blockmap
             workspace/release/latest-mac.yml
 
-      # ---- 更新通道固定 Release（供 electron-updater 检查） ----
       - name: Update channel release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -143,7 +136,6 @@ jobs:
           echo "✅ 通道 ${CHANNEL_TAG} 已更新到 v${VERSION}"
         continue-on-error: true
 
-      # ---- 飞书通知 ----
       - name: Feishu notification
         continue-on-error: true
         working-directory: workspace
