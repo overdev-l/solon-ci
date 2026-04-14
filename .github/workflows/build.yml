@@ -75,7 +75,7 @@ jobs:
           du -sh node_modules || true
           echo "::endgroup::"
           echo "::group::electron-builder"
-          npx electron-builder --mac --publish never
+          npx electron-builder --mac --publish never -c.electronVersion=41.0.0
           echo "::endgroup::"
           echo "构建产物："
           ls -lh release/*.dmg release/*.zip release/*.blockmap release/latest-mac.yml
