@@ -62,6 +62,8 @@ jobs:
 
       - name: Build Electron (macOS)
         working-directory: workspace
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
         run: |
           set -eo pipefail
           echo "::group::构建 Electron 主进程"
